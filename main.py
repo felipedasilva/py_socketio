@@ -21,8 +21,8 @@ class GoogleOAuth2LoginHandler(tornado.web.RequestHandler,
         else:
             yield self.authorize_redirect(
                 redirect_uri='http://localhost:8888/auth/google',
-                client_secret='UABMQW3VXPf1C7XU_s82QZV7',
-                client_id='642451603973-ecjbsnls4mqdlh4aost76p4stvbo1e8n.apps.googleusercontent.com',
+                client_secret='CLIENTE_SECRET',
+                client_id='CLIENT_ID',
                 scope=['profile', 'email'],
                 response_type='code',
                 extra_params={'approval_prompt': 'auto'})
