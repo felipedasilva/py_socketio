@@ -54,8 +54,8 @@ def make_app():
         "cookie_secret": "GoogleOAuth2LoginHandlerTESTE",
         "xsrf_cookies": True,
         "login_url": "/login",
-        "google_oauth": {"key": '642451603973-ecjbsnls4mqdlh4aost76p4stvbo1e8n.apps.googleusercontent.com',
-                         "secret": 'UABMQW3VXPf1C7XU_s82QZV7'}
+        "google_oauth": {"key": 'CLIENT_ID',
+                         "secret": 'CLIENT_SECRET'}
     }
     return tornado.web.Application([
         (r"/login", GoogleOAuth2LoginHandler),
