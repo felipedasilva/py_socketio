@@ -1,8 +1,7 @@
 import sys
 import os
 import unittest
-from test_base import BaseTest, models
-import json
+from test_base import BaseTest
 
 ROOT_DIR = os.path.join(os.path.dirname(__file__), '../')
 ROOT_PATH = os.path.abspath(ROOT_DIR)
@@ -12,9 +11,9 @@ from views import *
 from session import Session
 
 
-class ViewTest(BaseTest):
+class LoginViewTest(BaseTest):
     async def setUp(self):
-        await super(ViewTest, self).setUp()
+        await super(LoginViewTest, self).setUp()
         self.session = Session(None, None, None, None)
         self.user = await models.User.signup('test', 'test@test.com', '123')
 
@@ -37,9 +36,9 @@ class ViewTest(BaseTest):
             self.fail('Exception not excepted')
 
 
-class ViewTest2(BaseTest):
+class CreateUserViewTest(BaseTest):
     async def setUp(self):
-        await super(ViewTest2, self).setUp()
+        await super(CreateUserViewTest, self).setUp()
         self.session = Session(None, None, None, None)
 
     async def test_create_user(self):
