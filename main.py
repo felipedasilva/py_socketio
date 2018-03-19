@@ -1,31 +1,73 @@
-import asyncio
-import time
-from gino import enable_task_local
-import tornado
-from tornado import web, auth, autoreload
+import tornado.web
+import tornado.ioloop
+import tornado.options
+import tornado.escape
+import tornado.auth
+import tornado.gen
+import tornado.websocket
+from gino.ext.tornado import Application, GinoRequestHandler
 
-class GoogleOAuth2LoginHandler(tornado.web.RequestHandler,
-                               tornado.auth.GoogleOAuth2Mixin):
+import json
+import configparser
+import models
 
-    @tornado.gen.coroutine
-    def get(self):
-        if self.get_argument('code', False):
-            access = yield self.get_authenticated_user(
-                redirect_uri='http://localhost:8888/auth/google',
-                code=self.get_argument('code'))
-            user = yield self.oauth2_request(
-                "https://www.googleapis.com/oauth2/v1/userinfo",
-                access_token=access["access_token"])
-            print('user oauth', 'user')
-            print(user)
-        else:
-            yield self.authorize_redirect(
-                redirect_uri='http://localhost:8888/auth/google',
-                client_secret='UABMQW3VXPf1C7XU_s82QZV7',
-                client_id='642451603973-ecjbsnls4mqdlh4aost76p4stvbo1e8n.apps.googleusercontent.com',
-                scope=['profile', 'email'],
-                response_type='code',
-                extra_params={'approval_prompt': 'auto'})
+from session_manager import SessionManager
+
+config = configparser.ConfigParser()
+config.read('config.db.ini')
+
+db_params = None
+if 'prod' in config.sections():
+    db_params = {}
+    for name in config['prod']:
+        value = config['prod'][name]
+        try:
+            value = int(value)
+        except Exception as e:
+            pass
+        db_params[name] = value
+else:
+    raise Exception('Params db prod is missing')
+
+
+class WebSocketHandler(tornado.websocket.WebSocketHandler):
+
+    async def open(self):
+        await self.application.session_manager.process_message('OPN', id(self), None)
+        print("WebSocket opened", id(self))
+
+    async def on_message(self, message):
+        try:
+            msg = json.loads(message)
+        except Exception:
+            self.write_message(json.dumps(u'{"status": "error", "detail": "Invalid formatted", "msg": "' + msg['msg']
+                                          + '"}'))
+            self.close()
+            return
+
+        if 'msg' not in msg:
+            self.write_message(u'{"status": "error","detail": "Field \"msg\" is required", "msg": "' + msg['msg']
+                               + '"}')
+            self.close()
+            return
+
+        session_manager = self.application.session_manager
+        response = await session_manager.process_message('REQ', id(self), msg)
+        self.write_message(response)
+
+    def on_close(self):
+        self.application.session_manager.process_message('CLS', id(self), None)
+        print("WebSocket closed")
+
+    def check_origin(self, origin):
+        return True
+
+
+class LoginHandler(GinoRequestHandler):
+
+    async def get(self):
+        user = await models.User.authenticate('dev@beers.com', 'abc12345')
+        self.set_secure_cookie('user', user.email)
 
 
 class BaseHandler(tornado.web.RequestHandler):
@@ -37,35 +79,31 @@ class BaseHandler(tornado.web.RequestHandler):
 
 
 class SecurityHandler(BaseHandler):
-    @tornado.gen.coroutine
     @tornado.web.authenticated
-    def get(self):
+    async def get(self):
         self.write(self.get_current_user())
 
 
-async def printtime():
-    while True:
-        await asyncio.sleep(1)
-        print(time.strftime('%H:%M:%S'))
+class WSAplication(Application):
+    def __init__(self, handlers=None, default_host=None, transforms=None, **settings):
+        super(WSAplication, self).__init__(handlers, default_host, transforms, **settings)
+        self.session_manager = SessionManager()
 
-def make_app():
-    print('Iniciando server ...')
+
+if __name__ == '__main__':
+    tornado.options.parse_command_line()
+    tornado.ioloop.IOLoop.configure('tornado.platform.asyncio.AsyncIOMainLoop')
     settings = {
-        "cookie_secret": "GoogleOAuth2LoginHandlerTESTE",
+        "cookie_secret": "cookie_is_good",
         "xsrf_cookies": True,
         "login_url": "/login",
-        "google_oauth": {"key": '642451603973-ecjbsnls4mqdlh4aost76p4stvbo1e8n.apps.googleusercontent.com',
-                         "secret": 'UABMQW3VXPf1C7XU_s82QZV7'}
     }
-    return tornado.web.Application([
-        (r"/login", GoogleOAuth2LoginHandler),
-        (r"/auth/google", GoogleOAuth2LoginHandler),
-        (r"/home", SecurityHandler)
-    ], **settings, debug=True, autoreload=True, serve_traceback=True)
-
-
-if __name__ == "__main__":
-    app = make_app()
+    app = WSAplication([
+        (r"/login", LoginHandler),
+        (r"/home", SecurityHandler),
+        (r"/ws", WebSocketHandler)
+    ], **settings, debug=True, autoreload=True)
+    loop = tornado.ioloop.IOLoop.current().asyncio_loop
+    loop.run_until_complete(app.late_init(models.db, options=db_params))
     app.listen(8888)
-    enable_task_local()
-    tornado.ioloop.IOLoop.current().start()
+    loop.run_forever()

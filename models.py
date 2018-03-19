@@ -1,11 +1,12 @@
-from gino import Gino, enable_task_local
+from gino import Gino
 import hashlib
 import random
-import asyncio
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship
+
+Base = declarative_base()
 
 db = Gino()
-loop = asyncio.get_event_loop()
-enable_task_local(loop)
 
 
 class UserAlreadyExistsException(Exception):
@@ -84,3 +85,78 @@ class User(db.Model):
             if user.check_password(password):
                 return user
         return None
+
+    def public_data(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'email': self.email
+        }
+
+    def get_json_data(self):
+        return '{' + ('"id": "{}", "name": "{}", "email": "{}"'.format(self.id, self.name, self.email)) + '}'
+
+
+class Tag(db.Model):
+    __tablename__ = 'tags'
+
+    id = db.Column(db.Integer(), primary_key=True)
+    name = db.Column(db.Unicode(), nullable=False)
+
+    @staticmethod
+    async def create(name, *args, **kwargs):
+        tag = await Tag.query.where(Tag.name == name).gino.first()
+        if tag:
+            return tag
+        return await super(Tag, Tag).create(name=name, *args, **kwargs)
+
+
+class ContentTag(db.Model):
+    __tablename__ = 'contents_tags'
+
+    id_content = db.Column(db.Integer(), primary_key=True)
+    id_tag = db.Column(db.Integer(), primary_key=True)
+
+    @staticmethod
+    async def create(id_content, id_tag):
+        result = await ContentTag.query\
+            .where(ContentTag.id_content == id_content)\
+            .where(ContentTag.id_tag == id_tag)\
+            .gino.first()
+        if result:
+            return result
+        return await super(ContentTag, ContentTag).create(id_content=id_content, id_tag=id_tag)
+
+
+class Content(db.Model):
+    __tablename__ = 'contents'
+
+    id = db.Column(db.Integer(), primary_key=True)
+    title = db.Column(db.Unicode(100), nullable=False)
+    description = db.Column(db.Text(), nullable=False)
+    created_at = db.Column(db.Date())
+    id_user = db.Column(db.ForeignKey('users.id'), nullable=False)
+
+    @staticmethod
+    async def create(*args, **kwargs):
+        tags = []
+        if 'tags' in kwargs:
+            tags = kwargs['tags']
+            del kwargs['tags']
+        content = await super(Content, Content).create(*args, **kwargs)
+        for tag_name in tags:
+            tag = await Tag.create(tag_name)
+            await ContentTag.create(id_content=content.id, id_tag=tag.id)
+        return content
+
+    @relationship
+    async def user(self):
+        return await User.get(self.user_id)
+
+    @staticmethod
+    async def get_tags(content):
+        contents_tags = await ContentTag.query.where(ContentTag.id_content == content.id).gino.all()
+        tags = []
+        for content_tag in contents_tags:
+            tags.append(await Tag.query.where(Tag.id == content_tag.id_tag).gino.first())
+        return tags
